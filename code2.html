@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Route Master</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    /* Layout sizes */
+    .map-container { height: 420px; width: 100%; }
+    .chart-container { height: 320px; width: 100%; }
+
+    /* Animated background */
+    .hero {
+      background: radial-gradient(1200px 600px at 10% -20%, rgba(59,130,246,.15), transparent),
+                  radial-gradient(1000px 500px at 110% 0%, rgba(16,185,129,.12), transparent),
+                  linear-gradient(180deg, #ffffff, #f9fafb);
+      position: relative;
+      overflow: hidden;
+    }
+    .blob {
+      position: absolute; filter: blur(40px); opacity: .25; mix-blend-mode: multiply;
+      animation: float 10s ease-in-out infinite alternate;
+    }
+    .blob--blue { background: #60a5fa; width: 260px; height: 260px; top: -60px; left: -40px; border-radius: 40% 60% 70% 30%/50% 40% 60% 50%; }
+    .blob--green { background: #34d399; width: 220px; height: 220px; right: -50px; top: 20px; border-radius: 60% 40% 40% 60%/50% 60% 40% 50%; animation-duration: 12s; }
+    @keyframes float { from { transform: translateY(0) rotate(0deg) } to { transform: translateY(20px) rotate(6deg) } }
+
+    /* Card + hover tilt */
+    .result-card { transition: transform .25s ease, box-shadow .25s ease; transform: translateZ(0); }
+    .result-card:hover { transform: translateY(-6px) scale(1.01); box-shadow: 0 18px 40px rgba(0,0,0,.08); }
+
+    /* Best-day pulse ring */
+    .best-day { position: relative; }
+    .best-day::after {
+      content: ""; position: absolute; inset: -6px; border-radius: 16px;
+      box-shadow: 0 0 0 0 rgba(59,130,246,.35); animation: ring 2.2s infinite;
+    }
+    @keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(59,130,246,.35) } 70% { box-shadow: 0 0 0 14px rgba(59,130,246,0) } 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0) } }
+
+    /* Button shine */
+    .btn-shine { position: relative; overflow: hidden; }
+    .btn-shine::before {
+      content: ""; position: absolute; top: 0; left: -120%;
+      width: 80%; height: 100%; transform: skewX(-20deg);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+      transition: .6s; pointer-events: none;
+    }
+    .btn-shine:hover::before { left: 120%; }
+
+    /* Loading: bouncing dots + shimmer */
+    .dots span { animation: bounce 1.2s infinite; display: inline-block; }
+    .dots span:nth-child(2) { animation-delay: .15s }
+    .dots span:nth-child(3) { animation-delay: .3s }
+    @keyframes bounce { 0%, 80%, 100% { transform: translateY(0) } 40% { transform: translateY(-6px) } }
+
+    .skeleton {
+      background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%);
+      background-size: 400% 100%; animation: shimmer 1.4s ease infinite;
+    }
+    @keyframes shimmer { 0% { background-position: 100% 0 } 100% { background-position: 0 0 } }
+
+    /* Reveal animation */
+    .reveal { opacity: 0; transform: translateY(10px); transition: opacity .5s ease, transform .5s ease; }
+    .reveal.in { opacity: 1; transform: translateY(0) }
+
+    /* Gradient text */
+    .grad-text { background: linear-gradient(90deg,#2563eb,#10b981); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+    /* Chart average line label */
+    .avg-label {
+      position: absolute; right: 12px; padding: 2px 8px; font-size: 12px;
+      background: #eef2ff; color: #4338ca; border-radius: 999px; border: 1px solid #c7d2fe;
+    }
+
+    /* Dark mode support (simple) */
+    .dark .hero { background: linear-gradient(180deg, #0b1020, #0c1222); }
+    .dark body { background: #0b1020 }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-800">
+  <div class="hero relative">
+    <div class="blob blob--blue"></div>
+    <div class="blob blob--green"></div>
+
+    <div class="container mx-auto px-4 pt-12 pb-8">
+      <!-- Header -->
+      <header class="text-center mb-10">
+        <h1 class="text-4xl md:text-5xl font-extrabold grad-text drop-shadow-sm tracking-tight mb-3">
+          Route Master
+        </h1>
+        <p class="text-gray-600 md:text-lg">
+          Find the best day to travel based on historical traffic patterns
+        </p>
+      </header>
+
+      <!-- Controls + theme toggle -->
+      <div class="flex items-center justify-between mb-4">
+        <div></div>
+        <button id="theme-toggle" class="text-sm text-gray-600 hover:text-gray-800 transition">
+          <i class="fa-solid fa-moon mr-2"></i>Toggle theme
+        </button>
+      </div>
+
+      <!-- Main Form -->
+      <div class="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl ring-1 ring-gray-100 p-6 md:p-7">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label for="start" class="block text-sm font-medium text-gray-700 mb-1">Start location</label>
+            <div class="relative group">
+              <input type="text" id="start" placeholder="Enter starting point"
+                     class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500 pr-16 transition">
+              <div class="absolute right-3 top-3 flex gap-2">
+                <button type="button" onclick="getCurrentLocation('start')" class="text-blue-500 hover:text-blue-700" title="Use current location">
+                  <i class="fas fa-location-arrow"></i>
+                </button>
+                <div class="text-gray-400">
+                  <i class="fas fa-map-marker-alt"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label for="end" class="block text-sm font-medium text-gray-700 mb-1">Destination</label>
+            <div class="relative">
+              <input type="text" id="end" placeholder="Enter destination"
+                     class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500 pr-16 transition">
+              <div class="absolute right-3 top-3 flex gap-2">
+                <button type="button" onclick="getCurrentLocation('end')" class="text-blue-500 hover:text-blue-700" title="Use current location">
+                  <i class="fas fa-location-arrow"></i>
+                </button>
+                <div class="text-gray-400">
+                  <i class="fas fa-map-marker-alt"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+          <div>
+            <label for="departure-time" class="block text-sm font-medium text-gray-700 mb-1">Departure time</label>
+            <select id="departure-time"
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500">
+              <option value="08:00:00">8:00 AM</option>
+              <option value="09:00:00">9:00 AM</option>
+              <option value="17:00:00" selected>5:00 PM</option>
+              <option value="18:00:00">6:00 PM</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Date range</label>
+            <div class="grid grid-cols-2 gap-4">
+              <div class="relative">
+                <input type="date" id="start-date"
+                       class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500">
+              </div>
+              <div class="relative">
+                <input type="date" id="end-date"
+                       class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500/60 focus:border-blue-500">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-6">
+          <button id="check-journey"
+                  class="btn-shine w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition shadow-lg shadow-blue-600/20 flex items-center justify-center">
+            <i class="fas fa-search mr-2"></i> Find best travel day
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results Section -->
+  <div id="results" class="hidden">
+    <div class="container mx-auto px-4 py-8">
+      <div class="bg-white rounded-2xl shadow-lg p-6 md:p-8 ring-1 ring-gray-100">
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">Journey analysis</h2>
+
+        <!-- Legend -->
+        <div class="flex flex-wrap items-center gap-2 text-sm text-gray-600 mb-4">
+          <span class="px-2 py-1 rounded-full bg-green-100 text-green-700">Light</span>
+          <span class="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">Moderate</span>
+          <span class="px-2 py-1 rounded-full bg-orange-100 text-orange-700">Heavy</span>
+          <span class="px-2 py-1 rounded-full bg-red-100 text-red-700">Severe</span>
+          <span class="px-2 py-1 rounded-full bg-blue-100 text-blue-700">Best</span>
+        </div>
+
+        <!-- Summary Card -->
+        <div id="summary-card" class="reveal hidden bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-5 mb-6 rounded-xl">
+          <div class="flex items-start">
+            <div class="flex-shrink-0 pt-1">
+              <i class="fas fa-info-circle text-blue-500 text-xl"></i>
+            </div>
+            <div class="ml-3">
+              <h3 class="text-lg font-semibold text-blue-800" id="best-day-title">Best travel day</h3>
+              <div class="mt-1 text-sm text-blue-900/90 space-y-1">
+                <p>Estimated travel time: <span class="font-bold" id="best-duration">—</span></p>
+                <p>Distance: <span class="font-bold" id="best-distance">—</span></p>
+                <p>Expected traffic: <span class="font-bold" id="best-traffic">—</span></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Map Container -->
+        <div class="mb-8 reveal relative">
+          <h3 class="text-lg font-semibold text-gray-700 mb-2">Route overview</h3>
+          <div id="map-wrapper" class="rounded-lg border border-gray-200 overflow-hidden">
+            <div id="map-skeleton" class="map-container skeleton"></div>
+            <div id="map" class="map-container hidden bg-gray-100"></div>
+          </div>
+        </div>
+
+        <!-- Chart Container -->
+        <div class="mb-10 reveal relative">
+          <h3 class="text-lg font-semibold text-gray-700 mb-2">Journey time comparison</h3>
+          <div id="chart" class="chart-container rounded-lg border border-gray-200 bg-white p-4 relative">
+            <span id="avg-chip" class="avg-label hidden">Average</span>
+            <canvas id="journeyChart"></canvas>
+            <div id="chart-skeleton" class="absolute inset-0 skeleton rounded-lg"></div>
+          </div>
+        </div>
+
+        <!-- Detailed Results -->
+        <h3 class="text-lg font-semibold text-gray-700 mb-4">Daily journey details</h3>
+        <div id="results-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <!-- Injected -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Indicator -->
+  <div id="loading" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-white p-8 rounded-2xl text-center shadow-2xl w-[320px]">
+      <div class="mx-auto mb-4">
+        <div class="flex items-center justify-center gap-2 dots text-blue-600 text-3xl">
+          <span>•</span><span>•</span><span>•</span>
+        </div>
+      </div>
+      <h3 class="text-lg font-semibold text-gray-900">Analyzing traffic patterns</h3>
+      <p class="text-gray-600 mt-2">This may take a few moments...</p>
+    </div>
+  </div>
+
+  <!-- Google Maps API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDb8DVKwesO7E5yjvJo-ONtL8MRTHt9y3g&libraries=places,visualization"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    let bestDayIndex;
+    // Theme toggle
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      document.body.classList.toggle('text-gray-100');
+    });
+
+    // Defaults
+    document.addEventListener('DOMContentLoaded', function () {
+      const today = new Date();
+      const nextWeek = new Date();
+      nextWeek.setDate(today.getDate() + 7);
+
+      document.getElementById('start-date').valueAsDate = today;
+      document.getElementById('end-date').valueAsDate = nextWeek;
+
+      initAutocomplete();
+      setupReveals();
+    });
+
+    // Reveal on scroll
+    function setupReveals() {
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) entry.target.classList.add('in');
+        });
+      }, { threshold: 0.12 });
+      document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    }
+
+    // Geolocation + reverse geocode
+    function getCurrentLocation(fieldId) {
+      if (!navigator.geolocation) return alert("Geolocation is not supported by your browser");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const geocoder = new google.maps.Geocoder();
+          const latlng = { lat: position.coords.latitude, lng: position.coords.longitude };
+          geocoder.geocode({ location: latlng }, (results, status) => {
+            if (status === "OK" && results[0]) {
+              document.getElementById(fieldId).value = results[0].formatted_address;
+            } else {
+              alert("Unable to determine your address");
+            }
+          });
+        },
+        (error) => alert("Error getting your location: " + error.message)
+      );
+    }
+
+    // Google Places autocomplete
+    function initAutocomplete() {
+      const startInput = document.getElementById('start');
+      const endInput = document.getElementById('end');
+      new google.maps.places.Autocomplete(startInput);
+      new google.maps.places.Autocomplete(endInput);
+    }
+
+    // UI helpers
+    function showLoading(show) {
+      document.getElementById('loading').classList.toggle('hidden', !show);
+    }
+    function showSkeletons() {
+      document.getElementById('map-skeleton').classList.remove('hidden');
+      document.getElementById('map').classList.add('hidden');
+      document.getElementById('chart-skeleton').classList.remove('hidden');
+    }
+    function hideSkeletons() {
+      document.getElementById('map-skeleton').classList.add('hidden');
+      document.getElementById('map').classList.remove('hidden');
+      document.getElementById('chart-skeleton').classList.add('hidden');
+    }
+
+    // Main handler
+    document.getElementById('check-journey').addEventListener('click', function () {
+      const startLocation = document.getElementById('start').value.trim();
+      const endLocation = document.getElementById('end').value.trim();
+      const departureTime = document.getElementById('departure-time').value;
+      const startDate = new Date(document.getElementById('start-date').value);
+      const endDate = new Date(document.getElementById('end-date').value);
+
+      if (!startLocation || !endLocation) return alert('Please enter both start and end locations');
+      if (startDate > endDate) return alert('End date must be after start date');
+
+      showLoading(true);
+      showSkeletons();
+
+      // Simulated latency; plug your API call here.
+      setTimeout(function () {
+        const { days, bestDay } = analyzeJourney(startLocation, endLocation, departureTime, startDate, endDate);
+        showLoading(false);
+
+        document.getElementById('results').classList.remove('hidden');
+        document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+
+        displayResults(days, bestDay, startLocation, endLocation);
+        celebrateBestDay();
+        hideSkeletons();
+      }, 1200);
+    });
+
+    // Mock data generator + logic
+    function analyzeJourney(start, end, time, startDate, endDate) {
+      const days = [];
+      const currentDate = new Date(startDate);
+
+      while (currentDate <= endDate) {
+        const durationMinutes = Math.floor(Math.random() * 91) + 30; // 30-120
+        const durationText = `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`;
+        const dateStr = currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+        days.push({
+          date: new Date(currentDate),
+          dateStr,
+          duration: durationMinutes,
+          durationText,
+          distance: (Math.random() * 50 + 10).toFixed(1) + ' mi',
+          traffic: getRandomTrafficLevel()
+        });
+
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // FIX: proper reducer to pick the true min
+      const bestDay = days.reduce((min, day) => day.duration < min.duration ? day : min, days[0]);
+      return { days, bestDay };
+    }
+
+    function getRandomTrafficLevel() {
+      const levels = ['Light', 'Moderate', 'Heavy', 'Severe'];
+      return levels[Math.floor(Math.random() * levels.length)];
+    }
+
+    // UI rendering
+    function displayResults(days, bestDay, start, end) {
+      // Summary card with animated counters
+      document.getElementById('best-day-title').textContent = `Best travel day: ${bestDay.dateStr}`;
+      animateTextNumber('best-duration', 0, bestDay.duration, (v) => {
+        const h = Math.floor(v / 60), m = Math.floor(v % 60);
+        return `${h}h ${m}m`;
+      });
+      document.getElementById('best-distance').textContent = bestDay.distance;
+      document.getElementById('best-traffic').textContent = bestDay.traffic;
+
+      const summary = document.getElementById('summary-card');
+      summary.classList.remove('hidden');
+      requestAnimationFrame(() => summary.classList.add('in')); // reveal
+
+      // Cards
+      const resultsGrid = document.getElementById('results-grid');
+      resultsGrid.innerHTML = '';
+      days.forEach(day => {
+        const isBestDay = day.dateStr === bestDay.dateStr;
+        const card = document.createElement('div');
+        card.className = `result-card ${isBestDay ? 'best-day border-blue-400 ring-1 ring-blue-200/60' : 'border-gray-200'} bg-white rounded-xl border p-4 shadow-sm reveal`;
+        card.innerHTML = `
+          <div class="flex justify-between items-start mb-2">
+            <h4 class="font-semibold text-lg ${isBestDay ? 'text-blue-700' : 'text-gray-800'}">${day.dateStr}</h4>
+            ${isBestDay ? '<span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">Best day</span>' : ''}
+          </div>
+          <div class="space-y-2">
+            <div class="flex justify-between">
+              <span class="text-gray-600">Duration:</span>
+              <span class="font-medium">${day.durationText}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">Distance:</span>
+              <span class="font-medium">${day.distance}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">Traffic:</span>
+              <span class="font-medium ${getTrafficColorClass(day.traffic)}">${day.traffic}</span>
+            </div>
+          </div>
+        `;
+        resultsGrid.appendChild(card);
+        requestAnimationFrame(() => card.classList.add('in'));
+      });
+
+      // Map placeholder
+      initMap(start, end);
+
+      // Chart
+      initChart(days);
+    }
+
+    // Number animation for summary
+    function animateTextNumber(elementId, from, to, formatter) {
+      const el = document.getElementById(elementId);
+      const duration = 900;
+      const start = performance.now();
+      function tick(now) {
+        const p = Math.min(1, (now - start) / duration);
+        const val = from + (to - from) * p;
+        el.textContent = formatter ? formatter(val) : Math.round(val);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+
+    // Traffic color
+    function getTrafficColorClass(traffic) {
+      switch (traffic) {
+        case 'Light': return 'text-green-600';
+        case 'Moderate': return 'text-yellow-700';
+        case 'Heavy': return 'text-orange-600';
+        case 'Severe': return 'text-red-600';
+        default: return 'text-gray-600';
+      }
+    }
+
+    // Simulated Map
+    // Draw actual Google Map route for best day
+function initMap(start, end) {
+  const mapElement = document.getElementById('map');
+  mapElement.innerHTML = ""; // clear placeholder
+
+  const map = new google.maps.Map(mapElement, {
+    zoom: 7,
+    center: { lat: 20.5937, lng: 78.9629 }, // India center as default
+    mapTypeControl: false
+  });
+
+  const directionsService = new google.maps.DirectionsService();
+  const directionsRenderer = new google.maps.DirectionsRenderer({
+    map: map,
+    suppressMarkers: false
+  });
+
+  // Request route
+  directionsService.route(
+    {
+      origin: start,
+      destination: end,
+      travelMode: google.maps.TravelMode.DRIVING
+    },
+    (result, status) => {
+      if (status === google.maps.DirectionsStatus.OK) {
+        directionsRenderer.setDirections(result);
+      } else {
+        console.error("Directions request failed due to " + status);
+        /*mapElement.innerHTML = `
+          <div class="h-full flex items-center justify-center bg-gray-100 rounded-lg">
+            <div class="text-center p-6">
+              <i class="fas fa-exclamation-triangle text-3xl text-red-500 mb-3"></i>
+              <p class="text-gray-700">Unable to load route map</p>
+            </div>
+          </div>
+        `;*/
+      }
+    }
+  );
+}
+
+
+    // Chart with average line and gradient bars
+    let chartRef;
+function initChart(days) {
+  const ctx = document.getElementById('journeyChart').getContext('2d');
+  const labels = days.map(d => d.dateStr.split(',')[0]);
+  const data = days.map(d => d.duration);
+
+  const avg = data.reduce((a, b) => a + b, 0) / data.length;
+
+  const trafficColors = days.map(day => {
+    switch (day.traffic) {
+      case 'Light': return 'rgba(74, 222, 128, 0.85)';
+      case 'Moderate': return 'rgba(250, 204, 21, 0.85)';
+      case 'Heavy': return 'rgba(249, 115, 22, 0.85)';
+      case 'Severe': return 'rgba(239, 68, 68, 0.85)';
+      default: return 'rgba(156, 163, 175, 0.85)';
+    }
+  });
+
+  // FIXED: no self-reference
+  const bestDayIndex = days.reduce((bestIdx, day, idx) =>
+    day.duration < days[bestIdx].duration ? idx : bestIdx, 0);
+  trafficColors[bestDayIndex] = 'rgba(59, 130, 246, 0.9)';
+
+  const backgroundColor = (ctxArg) => {
+    const i = ctxArg.dataIndex;
+    const base = trafficColors[i];
+    const grad = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
+    grad.addColorStop(0, base);
+    grad.addColorStop(1, 'rgba(255,255,255,0.9)');
+    return grad;
+  };
+
+  const avgLine = {
+    id: 'avgLine',
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea: { left, right }, scales: { y } } = chart;
+      const yPos = y.getPixelForValue(avg);
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([6, 6]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#6366f1';
+      ctx.moveTo(left, yPos);
+      ctx.lineTo(right, yPos);
+      ctx.stroke();
+      ctx.restore();
+
+      const chip = document.getElementById('avg-chip');
+      chip.style.top = (chart.canvas.getBoundingClientRect().top + window.scrollY + yPos - 14) + 'px';
+      chip.classList.remove('hidden');
+    }
+  };
+
+  if (chartRef) chartRef.destroy();
+  chartRef = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Journey time (minutes)',
+        data,
+        backgroundColor,
+        borderColor: 'rgba(0,0,0,0.05)',
+        borderWidth: 1,
+        hoverBackgroundColor: 'rgba(59,130,246,0.9)'
+      }]
+    },
+    options: {
+      animation: { duration: 900, easing: 'easeOutQuart' },
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: 'Minutes' }, grid: { color: 'rgba(0,0,0,0.06)' } },
+        x: { grid: { display: false } }
+      },
+      plugins: {
+        tooltip: {
+          usePointStyle: true,
+          callbacks: {
+            label: (ctx) => ` ${ctx.parsed.y} min`,
+            afterLabel: (ctx) => {
+              const day = days[ctx.dataIndex];
+              return [`Distance: ${day.distance}`, `Traffic: ${day.traffic}`];
+            }
+          }
+        },
+        legend: { display: false }
+      },
+      hover: { mode: 'nearest', intersect: true }
+    },
+    plugins: [avgLine]
+  });
+}
+
+    // Confetti celebration for best day
+    function celebrateBestDay() {
+      const duration = 1200;
+      const end = Date.now() + duration;
+      const colors = ['#60a5fa', '#34d399', '#f59e0b', '#f43f5e'];
+      const canvas = document.createElement('canvas');
+      canvas.style.position = 'fixed';
+      canvas.style.inset = 0;
+      canvas.style.pointerEvents = 'none';
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      document.body.appendChild(canvas);
+      const ctx = canvas.getContext('2d');
+
+      const confetti = [];
+      for (let i = 0; i < 80; i++) {
+        confetti.push({
+          x: Math.random() * canvas.width,
+          y: -10 - Math.random() * canvas.height * .3,
+          r: 4 + Math.random() * 5,
+          c: colors[Math.floor(Math.random() * colors.length)],
+          vy: 2 + Math.random() * 2.5,
+          vx: -1 + Math.random() * 2,
+          rot: Math.random() * Math.PI,
+          vr: (-0.05 + Math.random() * 0.1)
+        });
+      }
+      (function frame() {
+        const now = Date.now();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        confetti.forEach(p => {
+          p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.fillStyle = p.c;
+          ctx.fillRect(-p.r, -p.r, p.r*2, p.r*2);
+          ctx.restore();
+        });
+        if (now < end) requestAnimationFrame(frame);
+        else document.body.removeChild(canvas);
+      })();
+    }
+  </script>
+</body>
+</html>
